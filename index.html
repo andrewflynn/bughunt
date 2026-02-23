@@ -22,9 +22,9 @@
             position: relative;
             border: 4px solid #555;
             box-shadow: 0 0 20px rgba(0,0,0,0.8);
-            /* Upscale styling: scales dynamically up to a large size */
+            /* Dynamic upscaling keeping 4:3 ratio */
             width: 90vw;
-            max-width: 960px; /* 1.5x original resolution */
+            max-width: 960px;
             aspect-ratio: 4 / 3;
         }
         
@@ -33,7 +33,7 @@
             background-color: #000;
             width: 100%;
             height: 100%;
-            /* Keeps the retro pixel-art crispness when scaled up */
+            /* Keeps retro pixel look sharp */
             image-rendering: pixelated;
             image-rendering: crisp-edges;
         }
@@ -55,14 +55,11 @@
             background-color: #eee;
             border-radius: 3px;
             border: 1px solid #b4b4b4;
-            box-shadow: 0 1px 1px rgba(0,0,0,.2), 0 2px 0 0 rgba(255,255,255,.7) inset;
             color: #333;
             display: inline-block;
             font-size: .85em;
             font-weight: 700;
-            line-height: 1;
             padding: 2px 6px;
-            white-space: nowrap;
         }
         #message {
             position: absolute;
@@ -76,6 +73,7 @@
             display: none;
             text-align: center;
             pointer-events: none;
+            width: 100%;
         }
     </style>
 </head>
@@ -90,7 +88,7 @@
 
     <div id="ui">
         <div class="controls">
-            <strong>Controls:</strong> Use <kbd>NumPad</kbd> or <kbd>Arrow Keys</kbd> (Home/End/PgUp/PgDn for diagonals).<br>
+            <strong>Controls:</strong> <kbd>NumPad</kbd> or <kbd>Arrow Keys</kbd> (Home/End for diagonals).<br>
             Goal: Navigate from Top-Left to Bottom-Right.<br>
             Press <kbd>Space</kbd> or <kbd>Enter</kbd> to Start/Restart.
         </div>
@@ -113,7 +111,7 @@ const msgEl = document.getElementById('message');
 const speedRange = document.getElementById('speedRange');
 const speedDisplay = document.getElementById('speedDisplay');
 
-// Collision Canvas (Offscreen)
+// Offscreen canvas for collision detection
 const wallCanvas = document.createElement('canvas');
 wallCanvas.width = 640;
 wallCanvas.height = 480;
@@ -137,20 +135,31 @@ const bug = {
     color3: '#AA5500', 
 };
 
-// The Maze String
-const MAZE_STR = "BH200 BL10 D50 L40 D40 R60 U90 L20 BD70 BL90 D80 R70 D20 L90 U100 R20 BR170 BD20 D60 L40 D80 L60 D60 R80 U40 R60 U40 L20 U60 R40 U60 L60 BU60 R120 D80 R60 U100 L180 D20 BD200 BL170 D80 L20 U80 R20 BD120 BR40 D80 R100 U60 R80 U40 R20 U20 L40 D40 L160 BU180 BR240 D180 R100 U160 L60 U20 L40 BU40 BR120 U90 R20 D20 R100 U20 R20 D40 R20 D40 L60 D60 L40 U50 L60 BR60 BD120 R60 D80 L20 U40 L40 U40 BD120 BL100 D60 R120 U40 L20 U20 L100 BL370 BU370 BR230 U30 R30 D30 L30 BR20 BD100 R40 D30 L40 U30";
+// Maze Data (Split for safety)
+const MAZE_STR = 
+    "BH200 BL10 D50 L40 D40 R60 U90 L20 BD70 BL90 D80 R70 D20 L90 U100 R20 BR170 BD20 D60 L40 D80 " +
+    "L60 D60 R80 U40 R60 U40 L20 U60 R40 U60 L60 BU60 R120 D80 R60 U100 L180 D20 BD200 BL170 D80 " +
+    "L20 U80 R20 BD120 BR40 D80 R100 U60 R80 U40 R20 U20 L40 D40 L160 BU180 BR240 D180 R100 U160 " +
+    "L60 U20 L40 BU40 BR120 U90 R20 D20 R100 U20 R20 D40 R20 D40 L60 D60 L40 U50 L60 BR60 BD120 " +
+    "R60 D80 L20 U40 L40 U40 BD120 BL100 D60 R120 U40 L20 U20 L100 BL370 BU370 BR230 U30 R30 D30 " +
+    "L30 BR20 BD100 R40 D30 L40 U30";
 
 function init() {
+    // 1. Prepare Collision Map
     drawMazeToCanvas(wallCtx, MAZE_STR);
     
+    // 2. Initial Draw
     ctx.fillStyle = "#000";
     ctx.fillRect(0,0, 640, 480);
     drawMazeToCanvas(ctx, MAZE_STR);
     resetBug();
-    drawBug(performance.now());
+    
+    // Draw bug with a valid timestamp (Date.now is safer fallback)
+    drawBug(performance ? performance.now() : Date.now());
+    
     showMessage("PRESS ENTER TO START");
     
-    // Attach event listeners via JS so they work in all environments
+    // 3. Setup Inputs
     window.addEventListener('keydown', handleInput);
     speedRange.addEventListener('input', function(e) {
         updateSpeed(e.target.value);
@@ -173,7 +182,6 @@ function updateSpeed(val) {
 function drawMazeToCanvas(context, cmdStr) {
     context.fillStyle = "#000";
     context.fillRect(0,0, 640, 480);
-    
     context.strokeStyle = "#00AA00"; 
     context.lineWidth = 2;
     context.beginPath();
@@ -191,7 +199,6 @@ function drawMazeToCanvas(context, cmdStr) {
         const dist = parseInt(match[3], 10);
 
         let dx = 0, dy = 0;
-
         switch(dir) {
             case 'U': dy = -1; break;
             case 'D': dy = 1; break;
@@ -211,41 +218,42 @@ function drawMazeToCanvas(context, cmdStr) {
         } else {
             context.lineTo(tx, ty);
         }
-
         x = tx; y = ty;
     }
-    
     context.stroke();
 }
 
-// --- Drawing the Bug (Smoothly Animated) ---
+// --- Smooth Bug Animation ---
 function drawBug(timestamp) {
-    const { x, y, width, height } = bug;
+    // Safety: Ensure timestamp is a number
+    if (typeof timestamp !== 'number') timestamp = 0;
 
+    const { x, y, width, height } = bug;
     ctx.save();
     ctx.translate(x, y);
 
-    // Legs
+    // Legs: Calculate sine wave for "rowing" motion
+    // speedMultiplier controls leg flap speed (independent of movement)
+    // swing controls how far pixels move
+    const speedMultiplier = 0.015; 
+    const swing = 5; 
+    const phaseL = Math.sin(timestamp * speedMultiplier);
+    const phaseR = Math.sin(timestamp * speedMultiplier + Math.PI); // Opposite phase
+
     ctx.strokeStyle = bug.color1;
     ctx.lineWidth = 1;
     ctx.beginPath();
     
-    // Calculate a smooth sine wave based on time for scurrying
-    const speedMultiplier = 0.025; // Controls how fast the legs flap
-    const phase1 = Math.sin(timestamp * speedMultiplier);
-    const phase2 = Math.sin(timestamp * speedMultiplier + Math.PI); // Opposite phase
-    const swing = 4; // How far the legs swing in pixels
+    // Left Legs
+    ctx.moveTo(0, 5);  ctx.lineTo(-6, 2 + phaseL * swing);
+    ctx.moveTo(0, 10); ctx.lineTo(-8, 10 - phaseL * swing);
+    ctx.moveTo(0, 15); ctx.lineTo(-6, 18 + phaseL * swing);
 
-    // Left legs 
-    ctx.moveTo(0, 5); ctx.lineTo(-6, 0 + phase1 * swing);   // Top
-    ctx.moveTo(0, 10); ctx.lineTo(-8, 10 + phase2 * swing); // Middle
-    ctx.moveTo(0, 15); ctx.lineTo(-6, 20 + phase1 * swing); // Bottom
-
-    // Right legs (mirrored and alternating to look like walking)
-    ctx.moveTo(width, 5); ctx.lineTo(width+6, 0 + phase2 * swing);   // Top
-    ctx.moveTo(width, 10); ctx.lineTo(width+8, 10 + phase1 * swing); // Middle
-    ctx.moveTo(width, 15); ctx.lineTo(width+6, 20 + phase2 * swing); // Bottom
-
+    // Right Legs
+    ctx.moveTo(width, 5);  ctx.lineTo(width+6, 2 + phaseR * swing);
+    ctx.moveTo(width, 10); ctx.lineTo(width+8, 10 - phaseR * swing);
+    ctx.moveTo(width, 15); ctx.lineTo(width+6, 18 + phaseR * swing);
+    
     ctx.stroke();
 
     // Body
@@ -286,9 +294,12 @@ function startGame() {
 function gameLoop(timestamp) {
     if (gameState !== 'PLAYING') return;
 
-    // The update frequency controls how often the bug actually MOVES forward
-    // Lower speed means it skips more logic frames, but we will still redraw
-    // the leg animation smoothly every single browser frame.
+    // Movement Logic (Throttled by Speed Slider)
+    // 1 (Fastest input) -> update every frame
+    // 15 (Slowest input) -> update every 10 frames
+    // Inverted logic: Speed 1 (Slow) ... Speed 15 (Fast)? 
+    // Original prompt: "To set speed... type a number between 1 and 15". 
+    // Usually higher = faster. Let's make 15 fast, 1 slow.
     const updateFreq = Math.max(1, Math.floor((16 - gameSpeed) / 2)); 
     
     frameCount++;
@@ -296,15 +307,133 @@ function gameLoop(timestamp) {
         update();
     }
 
-    // Always draw at full FPS for smooth leg animation
+    // Drawing Logic (Always run at full FPS for smooth animation)
     draw(timestamp);
 
-    // Continue the loop
-    if (gameState === 'PLAYING') {
-        requestAnimationFrame(gameLoop);
-    }
+    requestAnimationFrame(gameLoop);
 }
 
 function update() {
     const nextX = bug.x + bug.dx;
-    const nextY = bug.y + bug.
+    const nextY = bug.y + bug.dy;
+
+    // Screen Bounds
+    if (nextX < 0 || nextX > 640 - bug.width || nextY < 0 || nextY > 480 - bug.height) {
+        gameOver();
+        return;
+    }
+
+    // Wall Collision
+    if (checkCollision(nextX, nextY)) {
+        gameOver();
+        return;
+    }
+
+    bug.x = nextX;
+    bug.y = nextY;
+
+    // Victory Zone
+    if (bug.x >= 600 && bug.y >= 400 && bug.y <= 470) {
+        victory();
+    }
+}
+
+function checkCollision(x, y) {
+    // Check 5 points on the bug against the green wall color
+    const points = [
+        {x: x, y: y}, 
+        {x: x + bug.width, y: y}, 
+        {x: x, y: y + bug.height}, 
+        {x: x + bug.width, y: y + bug.height}, 
+        {x: x + bug.width/2, y: y + bug.height/2}
+    ];
+
+    for (let p of points) {
+        // Read from offscreen collision map
+        const pixel = wallCtx.getImageData(p.x, p.y, 1, 1).data;
+        // If Green channel > 100, it's a wall
+        if (pixel[1] > 100) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function draw(timestamp) {
+    // Clear and draw background maze
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, 640, 480);
+    ctx.drawImage(wallCanvas, 0, 0);
+    
+    // Draw animated bug
+    drawBug(timestamp);
+}
+
+function gameOver() {
+    gameState = 'GAMEOVER';
+    showMessage("GAME OVER!<br><span style='font-size:24px'>Press Enter to Try Again</span>");
+}
+
+function victory() {
+    gameState = 'VICTORY';
+    let hue = 0;
+    const winLoop = () => {
+        if (gameState !== 'VICTORY') return;
+        ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+        ctx.font = "bold 56px Courier New";
+        ctx.fillText("VICTORY!", 190, 240);
+        hue = (hue + 10) % 360;
+        requestAnimationFrame(winLoop);
+    }
+    winLoop();
+    showMessage("CONGRATULATIONS!<br><span style='font-size:24px'>You did it!</span>");
+}
+
+function showMessage(html) {
+    msgEl.innerHTML = html;
+    msgEl.style.display = 'block';
+}
+
+function handleInput(e) {
+    if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].indexOf(e.code) > -1) {
+        e.preventDefault();
+    }
+
+    if (gameState !== 'PLAYING') {
+        if (e.key === 'Enter' || e.key === ' ') {
+            if (gameState === 'VICTORY' || gameState === 'GAMEOVER') {
+                resetBug();
+                // Redraw initial state so bug resets visually immediately
+                drawBug(performance.now());
+            }
+            startGame();
+        }
+        return;
+    }
+    
+    switch(e.key) {
+        case 'ArrowUp': case '8': case 'w':
+            bug.dx = 0; bug.dy = -1; break;
+        case 'ArrowDown': case '2': case 's':
+            bug.dx = 0; bug.dy = 1; break;
+        case 'ArrowLeft': case '4': case 'a':
+            bug.dx = -1; bug.dy = 0; break;
+        case 'ArrowRight': case '6': case 'd':
+            bug.dx = 1; bug.dy = 0; break;
+        case 'Home': case '7': 
+            bug.dx = -1; bug.dy = -1; break;
+        case 'PageUp': case '9': 
+            bug.dx = 1; bug.dy = -1; break;
+        case 'End': case '1': 
+            bug.dx = -1; bug.dy = 1; break;
+        case 'PageDown': case '3': 
+            bug.dx = 1; bug.dy = 1; break;
+    }
+}
+
+// Start
+init();
+
+</script>
+</body>
+</html>
