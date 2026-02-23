@@ -19,22 +19,22 @@
         }
         h1 { margin: 10px 0; font-size: 32px; text-shadow: 2px 2px #000; }
         
+        /* Bulletproof container scaling */
         #gameContainer {
             position: relative;
+            background-color: #000;
             border: 4px solid #555;
             box-shadow: 0 0 20px rgba(0,0,0,0.8);
             width: 90vw;
-            max-width: 960px;
-            aspect-ratio: 4 / 3;
+            max-width: 800px;
         }
         
+        /* height: auto forces it to respect the internal 640x480 aspect ratio automatically */
         canvas {
             display: block;
-            background-color: #000;
             width: 100%;
-            height: 100%;
-            /* Keeps the retro pixel-art crispness */
-            image-rendering: pixelated;
+            height: auto; 
+            image-rendering: pixelated; /* Keeps pixel art crisp when upscaled */
             image-rendering: crisp-edges;
         }
 
@@ -42,7 +42,7 @@
             margin-top: 15px;
             text-align: center;
             width: 90vw;
-            max-width: 960px;
+            max-width: 800px;
         }
         .controls {
             background: #333;
@@ -67,7 +67,7 @@
             left: 50%;
             transform: translate(-50%, -50%);
             color: yellow;
-            font-size: 48px;
+            font-size: 40px;
             font-weight: bold;
             text-shadow: 3px 3px #000;
             display: none;
@@ -103,19 +103,17 @@
 <script>
 /**
  * BUGHUNT - Web Port
- * Original Logic adapted from QuickBASIC.
+ * Logic adapted from the QuickBASIC original.
+ * Wrapped in an IIFE to ensure it runs immediately without sandbox interference.
  */
-
-// We wait until the entire window loads to prevent sandbox/iframe early-execution errors.
-window.addEventListener('load', function() {
-
+(function() {
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const msgEl = document.getElementById('message');
     const speedRange = document.getElementById('speedRange');
     const speedDisplay = document.getElementById('speedDisplay');
 
-    // Collision Canvas (Offscreen map)
+    // Offscreen Canvas for pixel-perfect wall collision
     const wallCanvas = document.createElement('canvas');
     wallCanvas.width = 640;
     wallCanvas.height = 480;
@@ -126,7 +124,7 @@ window.addEventListener('load', function() {
     let gameSpeed = 5; 
     let frameCount = 0;
 
-    // The Bug Sprite Data
+    // Bug Data
     const bug = {
         x: 28,
         y: 28,
@@ -136,15 +134,8 @@ window.addEventListener('load', function() {
         dy: 0,
         color1: '#00AA00', 
         color2: '#5555FF', 
-        color3: '#AA5500', 
+        color3: '#AA5500'
     };
 
-    // Kept on one single line to prevent HTML parser breakages in simple editors
-    const MAZE_STR = "BH200 BL10 D50 L40 D40 R60 U90 L20 BD70 BL90 D80 R70 D20 L90 U100 R20 BR170 BD20 D60 L40 D80 L60 D60 R80 U40 R60 U40 L20 U60 R40 U60 L60 BU60 R120 D80 R60 U100 L180 D20 BD200 BL170 D80 L20 U80 R20 BD120 BR40 D80 R100 U60 R80 U40 R20 U20 L40 D40 L160 BU180 BR240 D180 R100 U160 L60 U20 L40 BU40 BR120 U90 R20 D20 R100 U20 R20 D40 R20 D40 L60 D60 L40 U50 L60 BR60 BD120 R60 D80 L20 U40 L40 U40 BD120 BL100 D60 R120 U40 L20 U20 L100 BL370 BU370 BR230 U30 R30 D30 L30 BR20 BD100 R40 D30 L40 U30";
-
-    function init() {
-        // Draw the collision map once in the background
-        drawMazeToCanvas(wallCtx, MAZE_STR);
-        
-        // Draw the visible playing field
-        ctx.fillStyle = "#0
+    // The entire DRAW maze command condensed to a single safe string
+    const MAZE_STR = "BH200 BL10 D50 L40 D40 R60 U90 L20 BD70 BL90 D80 R70 D20 L90 U100 R20 BR170 BD20 D60 L40 D80 L60 D60 R80 U40 R60 U40 L20 U60 R40 U60 L60 BU60 R120 D80 R60 U100 L180 D20 BD200 BL170 D80 L20 U80 R20 BD120 BR40 D80 R100 U60 R80 U40 R20 U20 L40 D40 L160 BU180 BR240 D180 R100 U160 L60 U20 L
