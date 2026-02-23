@@ -121,7 +121,6 @@ const wallCtx = wallCanvas.getContext('2d');
 
 // Game State
 let gameState = 'MENU'; 
-let animationId;
 let gameSpeed = 5; 
 let frameCount = 0;
 
@@ -133,7 +132,6 @@ const bug = {
     height: 20,
     dx: 0,
     dy: 0,
-    frame: 0, // Frame 0 or 1 for leg animation
     color1: '#00AA00', 
     color2: '#5555FF', 
     color3: '#AA5500', 
@@ -149,7 +147,7 @@ function init() {
     ctx.fillRect(0,0, 640, 480);
     drawMazeToCanvas(ctx, MAZE_STR);
     resetBug();
-    drawBug();
+    drawBug(performance.now());
     showMessage("PRESS ENTER TO START");
     
     // Attach event listeners via JS so they work in all environments
@@ -164,7 +162,6 @@ function resetBug() {
     bug.y = 28;
     bug.dx = 0;
     bug.dy = 0;
-    bug.frame = 0;
 }
 
 function updateSpeed(val) {
@@ -221,9 +218,9 @@ function drawMazeToCanvas(context, cmdStr) {
     context.stroke();
 }
 
-// --- Drawing the Bug (Animated) ---
-function drawBug() {
-    const { x, y, width, height, frame } = bug;
+// --- Drawing the Bug (Smoothly Animated) ---
+function drawBug(timestamp) {
+    const { x, y, width, height } = bug;
 
     ctx.save();
     ctx.translate(x, y);
@@ -233,28 +230,22 @@ function drawBug() {
     ctx.lineWidth = 1;
     ctx.beginPath();
     
-    // Toggling legs based on the current frame
-    if (frame === 0) {
-        // Frame 1: Spread Legs
-        // Left
-        ctx.moveTo(0, 5); ctx.lineTo(-6, 0);
-        ctx.moveTo(0, 10); ctx.lineTo(-8, 10);
-        ctx.moveTo(0, 15); ctx.lineTo(-6, 20);
-        // Right
-        ctx.moveTo(width, 5); ctx.lineTo(width+6, 0);
-        ctx.moveTo(width, 10); ctx.lineTo(width+8, 10);
-        ctx.moveTo(width, 15); ctx.lineTo(width+6, 20);
-    } else {
-        // Frame 2: Tucked Legs
-        // Left
-        ctx.moveTo(0, 5); ctx.lineTo(-3, 3);
-        ctx.moveTo(0, 10); ctx.lineTo(-4, 10);
-        ctx.moveTo(0, 15); ctx.lineTo(-3, 17);
-        // Right
-        ctx.moveTo(width, 5); ctx.lineTo(width+3, 3);
-        ctx.moveTo(width, 10); ctx.lineTo(width+4, 10);
-        ctx.moveTo(width, 15); ctx.lineTo(width+3, 17);
-    }
+    // Calculate a smooth sine wave based on time for scurrying
+    const speedMultiplier = 0.025; // Controls how fast the legs flap
+    const phase1 = Math.sin(timestamp * speedMultiplier);
+    const phase2 = Math.sin(timestamp * speedMultiplier + Math.PI); // Opposite phase
+    const swing = 4; // How far the legs swing in pixels
+
+    // Left legs 
+    ctx.moveTo(0, 5); ctx.lineTo(-6, 0 + phase1 * swing);   // Top
+    ctx.moveTo(0, 10); ctx.lineTo(-8, 10 + phase2 * swing); // Middle
+    ctx.moveTo(0, 15); ctx.lineTo(-6, 20 + phase1 * swing); // Bottom
+
+    // Right legs (mirrored and alternating to look like walking)
+    ctx.moveTo(width, 5); ctx.lineTo(width+6, 0 + phase2 * swing);   // Top
+    ctx.moveTo(width, 10); ctx.lineTo(width+8, 10 + phase1 * swing); // Middle
+    ctx.moveTo(width, 15); ctx.lineTo(width+6, 20 + phase2 * swing); // Bottom
+
     ctx.stroke();
 
     // Body
@@ -292,20 +283,23 @@ function startGame() {
     requestAnimationFrame(gameLoop);
 }
 
-function gameLoop() {
+function gameLoop(timestamp) {
     if (gameState !== 'PLAYING') return;
 
+    // The update frequency controls how often the bug actually MOVES forward
+    // Lower speed means it skips more logic frames, but we will still redraw
+    // the leg animation smoothly every single browser frame.
     const updateFreq = Math.max(1, Math.floor((16 - gameSpeed) / 2)); 
     
     frameCount++;
-    if (frameCount % updateFreq !== 0) {
-        requestAnimationFrame(gameLoop);
-        return;
+    if (frameCount % updateFreq === 0) {
+        update();
     }
 
-    update();
-    draw();
+    // Always draw at full FPS for smooth leg animation
+    draw(timestamp);
 
+    // Continue the loop
     if (gameState === 'PLAYING') {
         requestAnimationFrame(gameLoop);
     }
@@ -313,116 +307,4 @@ function gameLoop() {
 
 function update() {
     const nextX = bug.x + bug.dx;
-    const nextY = bug.y + bug.dy;
-
-    // Toggle leg animation frame exactly like original's PUT Bug1% / Bug2% loop
-    bug.frame = (bug.frame === 0) ? 1 : 0;
-
-    if (nextX < 0 || nextX > 640 - bug.width || nextY < 0 || nextY > 480 - bug.height) {
-        gameOver();
-        return;
-    }
-
-    if (checkCollision(nextX, nextY)) {
-        gameOver();
-        return;
-    }
-
-    bug.x = nextX;
-    bug.y = nextY;
-
-    if (bug.x >= 600 && bug.y >= 400 && bug.y <= 470) {
-        victory();
-    }
-}
-
-function checkCollision(x, y) {
-    const points = [
-        {x: x, y: y}, 
-        {x: x + bug.width, y: y}, 
-        {x: x, y: y + bug.height}, 
-        {x: x + bug.width, y: y + bug.height}, 
-        {x: x + bug.width/2, y: y + bug.height/2}
-    ];
-
-    for (let p of points) {
-        const pixel = wallCtx.getImageData(p.x, p.y, 1, 1).data;
-        if (pixel[1] > 100) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function draw() {
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, 640, 480);
-    ctx.drawImage(wallCanvas, 0, 0);
-    drawBug();
-}
-
-function gameOver() {
-    gameState = 'GAMEOVER';
-    showMessage("GAME OVER!<br><span style='font-size:24px'>Press Enter to Try Again</span>");
-}
-
-function victory() {
-    gameState = 'VICTORY';
-    let hue = 0;
-    const winLoop = () => {
-        if (gameState !== 'VICTORY') return;
-        ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
-        ctx.font = "bold 56px Courier New";
-        ctx.fillText("VICTORY!", 190, 240);
-        hue = (hue + 10) % 360;
-        requestAnimationFrame(winLoop);
-    }
-    winLoop();
-    showMessage("CONGRATULATIONS!<br><span style='font-size:24px'>You did it!</span>");
-}
-
-function showMessage(html) {
-    msgEl.innerHTML = html;
-    msgEl.style.display = 'block';
-}
-
-function handleInput(e) {
-    if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].indexOf(e.code) > -1) {
-        e.preventDefault();
-    }
-
-    if (gameState !== 'PLAYING') {
-        if (e.key === 'Enter' || e.key === ' ') {
-            if (gameState === 'VICTORY' || gameState === 'GAMEOVER') {
-                resetBug();
-            }
-            startGame();
-        }
-        return;
-    }
-    
-    switch(e.key) {
-        case 'ArrowUp': case '8': case 'w':
-            bug.dx = 0; bug.dy = -1; break;
-        case 'ArrowDown': case '2': case 's':
-            bug.dx = 0; bug.dy = 1; break;
-        case 'ArrowLeft': case '4': case 'a':
-            bug.dx = -1; bug.dy = 0; break;
-        case 'ArrowRight': case '6': case 'd':
-            bug.dx = 1; bug.dy = 0; break;
-        case 'Home': case '7': 
-            bug.dx = -1; bug.dy = -1; break;
-        case 'PageUp': case '9': 
-            bug.dx = 1; bug.dy = -1; break;
-        case 'End': case '1': 
-            bug.dx = -1; bug.dy = 1; break;
-        case 'PageDown': case '3': 
-            bug.dx = 1; bug.dy = 1; break;
-    }
-}
-
-init();
-
-</script>
-</body>
-</html>
+    const nextY = bug.y + bug.
