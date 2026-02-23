@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BugHunt - Web Edition</title>
+    <style>
+        body {
+            background-color: #222;
+            color: #eee;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        h1 { margin: 10px 0; font-size: 24px; text-shadow: 2px 2px #000; }
+        #gameContainer {
+            position: relative;
+            border: 4px solid #555;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        canvas {
+            display: block;
+            background-color: #000;
+        }
+        #ui {
+            margin-top: 15px;
+            text-align: center;
+            max-width: 640px;
+        }
+        .controls {
+            background: #333;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        kbd {
+            background-color: #eee;
+            border-radius: 3px;
+            border: 1px solid #b4b4b4;
+            box-shadow: 0 1px 1px rgba(0,0,0,.2), 0 2px 0 0 rgba(255,255,255,.7) inset;
+            color: #333;
+            display: inline-block;
+            font-size: .85em;
+            font-weight: 700;
+            line-height: 1;
+            padding: 2px 4px;
+            white-space: nowrap;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: yellow;
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 2px 2px #000;
+            display: none;
+            text-align: center;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>BUGHUNT</h1>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="640" height="480"></canvas>
+        <div id="message"></div>
+    </div>
+
+    <div id="ui">
+        <div class="controls">
+            <strong>Controls:</strong> Use <kbd>NumPad</kbd> or <kbd>Arrow Keys</kbd> (Home/End/PgUp/PgDn for diagonals).<br>
+            Goal: Navigate from Top-Left to Bottom-Right.<br>
+            Press <kbd>Space</kbd> or <kbd>Enter</kbd> to Start/Restart.
+        </div>
+        <div style="margin-top: 10px;">
+            <label for="speedRange">Speed:</label>
+            <input type="range" id="speedRange" min="1" max="15" value="5" oninput="updateSpeed(this.value)">
+            <span id="speedDisplay">5</span>
+        </div>
+    </div>
+
+<script>
+/**
+ * BUGHUNT - Web Port
+ * Original Logic adapted from QuickBASIC.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const msgEl = document.getElementById('message');
+
+// Collision Canvas (Offscreen)
+// We draw the maze here to detect wall hits by pixel color
+const wallCanvas = document.createElement('canvas');
+wallCanvas.width = 640;
+wallCanvas.height = 480;
+const wallCtx = wallCanvas.getContext('2d');
+
+// Game State
+let gameState = 'MENU'; // MENU, PLAYING, GAMEOVER, VICTORY
+let animationId;
+let gameSpeed = 5; // 1 (Fast) to 15 (Slow) - Inverted in JS logic for frame skipping
+let frameCount = 0;
+
+// The Bug
+const bug = {
+    x: 28,
+    y: 28,
+    width: 24,  // Approximated from DRAW commands
+    height: 20,
+    dx: 0,
+    dy: 0,
+    color1: '#00AA00', // QBasic Color 2 (Green)
+    color2: '#5555FF', // QBasic Color 9 (Light Blue)
+    color3: '#AA5500', // QBasic Color 6 (Brown)
+};
+
+// The Maze String (Concatenated from source)
+const MAZE_STR = "BH200 BL10 D50 L40 D40 R60 U90 L20 BD70 BL90 D80 R70 D20 L90 U100 R20 BR170 BD20 D60 L40 D80 L60 D60 R80 U40 R60 U40 L20 U60 R40 U60 L60 BU60 R120 D80 R60 U100 L180 D20 BD200 BL170 D80 L20 U80 R20 BD120 BR40 D80 R100 U60 R80 U40 R20 U20 L40 D40 L160 BU180 BR240 D180 R100 U160 L60 U20 L40 BU40 BR120 U90 R20 D20 R100 U20 R20 D40 R20 D40 L60 D60 L40 U50 L60 BR60 BD120 R60 D80 L20 U40 L40 U40 BD120 BL100 D60 R120 U40 L20 U20 L100 BL370 BU370 BR230 U30 R30 D30 L30 BR20 BD100 R40 D30 L40 U30";
+
+// --- Initialization ---
+
+function init() {
+    // Render the maze to the offscreen canvas once
+    drawMazeToCanvas(wallCtx, MAZE_STR);
+    
+    // Initial Screen
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0,0, 640, 480);
+    drawMazeToCanvas(ctx, MAZE_STR);
+    resetBug();
+    drawBug();
+    showMessage("PRESS ENTER TO START");
+    
+    // Input Handling
+    window.addEventListener('keydown', handleInput);
+}
+
+function resetBug() {
+    bug.x = 28;
+    bug.y = 28;
+    bug.dx = 0;
+    bug.dy = 0;
+}
+
+function updateSpeed(val) {
+    // In original code, higher number = slower (PAUSER loop).
+    // Here we'll map 1-15 roughly similarly.
+    gameSpeed = parseInt(val);
+    document.getElementById('speedDisplay').innerText = val;
+}
+
+// --- Maze Parsing (Turtle Graphics) ---
+
+function drawMazeToCanvas(context, cmdStr) {
+    context.fillStyle = "#000";
+    context.fillRect(0,0, 640, 480);
+    
+    // QBasic Color 2 is Green. We use a bright green for walls.
+    context.strokeStyle = "#00AA00"; 
+    context.lineWidth = 2;
+    context.beginPath();
+
+    // Start at center? QBasic DRAW usually starts at last point or center.
+    // Based on "BH200" (Blind Horizontal?), we assume standard coordinates.
+    // Actually, DRAW "C2 X" + VARPTR$(MAZE$) executes the string.
+    // We need a cursor. Let's assume start at 320, 240 (center of SCREEN 12) 
+    // or 0,0. The first command is BH200 (Move horizontal?). 
+    // QBasic DRAW commands: U=Up, D=Down, L=Left, R=Right. Prefix B=Blind (no draw).
+    
+    // Let's implement a simple parser
+    let x = 320; // Default center for QB DRAW
+    let y = 240;
+    context.moveTo(x, y);
+
+    // Split string into tokens (Letter+Number)
+    // Regex matches: B? (optional B), then one of U D L R E F G H, then digits
+    // The string uses: BH, BL, D, L, R, U, BD, BR, BU.
+    // Note: H is not standard QB draw? Ah, actually H might be Move Absolute?
+    // Wait, the prompt string has "BH". In QB DRAW, 'M' is move.
+    // 'H' is not a standard direction unless it's a variable reference.
+    // However, looking at the string "BH200", in some dialects H/E/F/G are diagonals?
+    // Or maybe H is "Horizontal"? 
+    // Standard QB DRAW: U, D, L, R, E(UR), F(DR), G(DL), H(UL).
+    // So H is Up-Left diagonal?
+    // BH200 = Blind Move Up-Left 200 units?
+    // BL is Blind Left.
+    
+    // Let's standardise the parser regex
+    const regex = /([B]?)([UDLRHEFG])(\d+)/g;
+    let match;
+
+    while ((match = regex.exec(cmdStr)) !== null) {
+        const blind = match[1] === "B";
+        const dir = match[2];
+        const dist = parseInt(match[3]);
+
+        let dx = 0;
+        let dy = 0;
+
+        switch(dir) {
+            case 'U': dy = -1; break;
+            case 'D': dy = 1; break;
+            case 'L': dx = -1; break;
+            case 'R': dx = 1; break;
+            case 'E': dx = 1; dy = -1; break; // Up Right
+            case 'F': dx = 1; dy = 1; break;  // Down Right
+            case 'G': dx = -1; dy = 1; break; // Down Left
+            case 'H': dx = -1; dy = -1; break;// Up Left
+        }
+
+        const tx = x + (dx * dist);
+        const ty = y + (dy * dist);
+
+        if (blind) {
+            context.moveTo(tx, ty);
+        } else {
+            context.lineTo(tx, ty);
+        }
+
+        x = tx;
+        y = ty;
+    }
+    
+    context.stroke();
+}
+
+// --- Drawing the Bug ---
+
+function drawBug() {
+    // Simplified version of the complex PSET/LINE logic in the source
+    // to render the visual intent of the "Bug".
+    const { x, y, width, height } = bug;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Legs (Spider-like lines)
+    ctx.strokeStyle = bug.color1;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    // Left Legs
+    ctx.moveTo(0, 5); ctx.lineTo(-5, 2);
+    ctx.moveTo(0, 10); ctx.lineTo(-6, 10);
+    ctx.moveTo(0, 15); ctx.lineTo(-5, 18);
+    // Right Legs
+    ctx.moveTo(width, 5); ctx.lineTo(width+5, 2);
+    ctx.moveTo(width, 10); ctx.lineTo(width+6, 10);
+    ctx.moveTo(width, 15); ctx.lineTo(width+5, 18);
+    ctx.stroke();
+
+    // Body (Green Rect)
+    ctx.fillStyle = bug.color1;
+    ctx.fillRect(0, 0, width, height);
+
+    // Stripes (Blue)
+    ctx.fillStyle = bug.color2;
+    ctx.fillRect(4, 0, 2, height);
+    ctx.fillRect(10, 0, 2, height);
+    ctx.fillRect(16, 0, 2, height);
+
+    // Eyes (Brown/Orange)
+    ctx.fillStyle = bug.color3;
+    ctx.fillRect(width-4, 2, 4, 4);
+    ctx.fillRect(width-4, height-6, 4, 4);
+
+    // Mandibles
+    ctx.strokeStyle = bug.color1;
+    ctx.beginPath();
+    ctx.moveTo(width, 8); ctx.lineTo(width+5, 10); ctx.lineTo(width, 12);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// --- Game Loop ---
+
+function startGame() {
+    if (gameState === 'PLAYING') return;
+    gameState = 'PLAYING';
+    resetBug();
+    // Default movement right (from code: MoveRight called first)
+    bug.dx = 1;
+    bug.dy = 0;
+    msgEl.style.display = 'none';
+    lastTime = 0;
+    requestAnimationFrame(gameLoop);
+}
+
+function gameLoop(timestamp) {
+    if (gameState !== 'PLAYING') return;
+
+    // Throttle speed based on input setting (Simulating PAUSER loop)
+    // We update every (Speed/2) frames roughly. 
+    // Higher speed setting = slower updates (per original basic logic: FOR s=1 to 105 - v*7)
+    // Wait, original logic: 105 - (v*7). If v=15, loops=0 (FAST). If v=1, loops=98 (SLOW).
+    // So Input 15 is FASTEST. Input 1 is SLOWEST.
+    // My UI slider is 1..15. Let's invert the delay logic.
+    
+    // We skip frames to slow it down.
+    // 15 = Update every frame.
+    // 1 = Update every 10 frames.
+    const updateFreq = Math.max(1, Math.floor((16 - gameSpeed) / 2)); 
+    
+    frameCount++;
+    if (frameCount % updateFreq !== 0) {
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    update();
+    draw();
+
+    if (gameState === 'PLAYING') {
+        requestAnimationFrame(gameLoop);
+    }
+}
+
+function update() {
+    // 1. Move
+    const nextX = bug.x + bug.dx;
+    const nextY = bug.y + bug.dy;
+
+    // 2. Boundary Check (Screen Edges)
+    if (nextX < 0 || nextX > 640 - bug.width || nextY < 0 || nextY > 480 - bug.height) {
+        gameOver();
+        return;
+    }
+
+    // 3. Wall Collision Check
+    // We scan the pixels on the wallCanvas where the bug WILL be.
+    // If any pixel is Green (the wall color), CRASH.
+    // Optimization: check corners and center.
+    if (checkCollision(nextX, nextY)) {
+        gameOver();
+        return;
+    }
+
+    // 4. Update Position
+    bug.x = nextX;
+    bug.y = nextY;
+
+    // 5. Victory Condition
+    // Original: IF BugPosit(0) = 600... and Y in 400..470
+    // BugPosit(0) is X. 
+    if (bug.x >= 600 && bug.y >= 400 && bug.y <= 470) {
+        victory();
+    }
+}
+
+function checkCollision(x, y) {
+    // Get pixel data for the bug's bounding box from the wall canvas
+    // We verify 4 corners and midpoints to ensure we don't phase through lines
+    const points = [
+        {x: x, y: y}, // Top Left
+        {x: x + bug.width, y: y}, // Top Right
+        {x: x, y: y + bug.height}, // Bottom Left
+        {x: x + bug.width, y: y + bug.height}, // Bottom Right
+        {x: x + bug.width/2, y: y + bug.height/2} // Center
+    ];
+
+    for (let p of points) {
+        const pixel = wallCtx.getImageData(p.x, p.y, 1, 1).data;
+        // Pixel is [R, G, B, A]. Wall color is #00AA00 (0, 170, 0).
+        // Check if Green channel is high.
+        if (pixel[1] > 100) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function draw() {
+    // Clear
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, 640, 480);
+
+    // Draw Static Maze (copy from cache)
+    ctx.drawImage(wallCanvas, 0, 0);
+
+    // Draw Bug
+    drawBug();
+}
+
+function gameOver() {
+    gameState = 'GAMEOVER';
+    showMessage("GAME OVER!<br><span style='font-size:20px'>Press Enter to Try Again</span>");
+}
+
+function victory() {
+    gameState = 'VICTORY';
+    // Fun victory effect
+    let hue = 0;
+    const winLoop = () => {
+        if (gameState !== 'VICTORY') return;
+        ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+        ctx.font = "40px Courier New";
+        ctx.fillText("VICTORY!", 220, 240);
+        hue = (hue + 10) % 360;
+        requestAnimationFrame(winLoop);
+    }
+    winLoop();
+    showMessage("CONGRATULATIONS!<br><span style='font-size:20px'>You did it!</span>");
+}
+
+function showMessage(html) {
+    msgEl.innerHTML = html;
+    msgEl.style.display = 'block';
+}
+
+// --- Input ---
+
+function handleInput(e) {
+    // Prevent default scrolling for arrow keys
+    if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].indexOf(e.code) > -1) {
+        e.preventDefault();
+    }
+
+    if (gameState !== 'PLAYING') {
+        if (e.key === 'Enter' || e.key === ' ') {
+            if (gameState === 'VICTORY' || gameState === 'GAMEOVER') {
+                resetBug();
+            }
+            startGame();
+        }
+        return;
+    }
+
+    // Direction Mapping
+    // Numpad: 8(Up), 2(Down), 4(Left), 6(Right), 7(UL), 9(UR), 1(DL), 3(DR)
+    // Arrows + Standard keys
+    
+    switch(e.key) {
+        // Up
+        case 'ArrowUp': case '8': case 'w':
+            bug.dx = 0; bug.dy = -1; break;
+        // Down
+        case 'ArrowDown': case '2': case 's':
+            bug.dx = 0; bug.dy = 1; break;
+        // Left
+        case 'ArrowLeft': case '4': case 'a':
+            bug.dx = -1; bug.dy = 0; break;
+        // Right
+        case 'ArrowRight': case '6': case 'd':
+            bug.dx = 1; bug.dy = 0; break;
+        
+        // Diagonals (Numpad / Common Layouts)
+        case 'Home': case '7': // Up Left
+            bug.dx = -1; bug.dy = -1; break;
+        case 'PageUp': case '9': // Up Right
+            bug.dx = 1; bug.dy = -1; break;
+        case 'End': case '1': // Down Left
+            bug.dx = -1; bug.dy = 1; break;
+        case 'PageDown': case '3': // Down Right
+            bug.dx = 1; bug.dy = 1; break;
+    }
+}
+
+// Initial Render
+init();
+
+</script>
+</body>
+</html>
